@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Control Timer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: Arial, sans-serif; background: #121212; color: #fff; margin: 0; }
+    h1 { text-align: center; padding: 15px; margin: 0; background: #1f1f1f; }
+    .screen { display: none; padding: 20px; }
+    .active { display: block; }
+    button {
+      padding: 14px 20px;
+      font-size: 18px;
+      margin: 10px;
+      border: none;
+      border-radius: 10px;
+      background: #0d6efd;
+      color: white;
+      width: 80%;
+      max-width: 300px;
+      cursor: pointer;
+    }
+    button:hover { background: #0b5ed7; }
+    .preset { background: #198754; }
+    .preset:hover { background: #157347; }
+    nav {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      display: flex; justify-content: space-around;
+      background: #1f1f1f; padding: 10px 0;
+    }
+    nav button { flex: 1; margin: 0; font-size: 16px; border-radius: 0; }
+    .progress-container {
+      width: 100%; max-width: 400px; margin: 20px auto; background: #333;
+      height: 20px; border-radius: 10px; overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%; background: #0d6efd; width: 0%;
+      transition: width 0.5s linear;
+    }
+    input {
+      padding: 10px; margin: 5px; font-size: 16px;
+      border-radius: 6px; border: none; width: 70px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>⏱ Control del Timer</h1>
+
+  <!-- Pantalla principal -->
+  <div id="home" class="screen active">
+    <h2 id="time-display">00:00:00</h2>
+    <div class="progress-container"><div id="progress" class="progress-bar"></div></div>
+    <div style="text-align:center">
+      <button onclick="send('/start')">▶️ Start</button>
+      <button onclick="send('/pause')">⏸ Pause</button>
+      <button onclick="send('/resume')">⏯ Resume</button>
+      <button onclick="send('/reset')">🔄 Reset</button>
+    </div>
+    <h3>Presets</h3>
+    <div id="presets" style="text-align:center"></div>
+  </div>
+
+  <!-- Pantalla de configuración -->
+  <div id="config" class="screen">
+    <h2>⚙️ Configuración</h2>
+    <label>IP del Timer:</label><br>
+    <input type="text" id="ipInput" placeholder="http://192.168.0.100:6565"><br><br>
+    <button onclick="saveIP()">Guardar IP</button>
+    <hr>
+    <h3>Añadir nuevo preset</h3>
+    <input type="number" id="hours" placeholder="Horas" min="0">
+    <input type="number" id="minutes" placeholder="Minutos" min="0">
+    <input type="number" id="seconds" placeholder="Segundos" min="0"><br>
+    <button onclick="addPreset()">Agregar Preset</button>
+  </div>
+
+  <!-- Navegación -->
+  <nav>
+    <button onclick="show('home')">🏠 Inicio</button>
+    <button onclick="show('config')">⚙️ Configuración</button>
+  </nav>
+
+  <script>
+    let baseUrl = localStorage.getItem("timerIP") || "http://192.168.0.100:6565";
+    document.getElementById("ipInput").value = baseUrl;
+
+    let presets = JSON.parse(localStorage.getItem("timerPresets")) || [
+      {h:0, m:5, s:0},
+      {h:0, m:10, s:0},
+      {h:0, m:15, s:0}
+    ];
+
+    let totalSeconds = 0;
+    let remainingSeconds = 0;
+
+    function show(screen) {
+      document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
+      document.getElementById(screen).classList.add("active");
+    }
+
+    function renderPresets() {
+      const container = document.getElementById("presets");
+      container.innerHTML = "";
+      presets.forEach(p => {
+        const btn = document.createElement("button");
+        btn.className = "preset";
+        btn.textContent = `${p.h}h ${p.m}m ${p.s}s`;
+        btn.onclick = () => setPreset(p.h, p.m, p.s);
+        container.appendChild(btn);
+      });
+    }
+
+    function setPreset(h, m, s) {
+      totalSeconds = h*3600 + m*60 + s;
+      remainingSeconds = totalSeconds;
+      send(`/set/${h}/${m}/${s}`);
+    }
+
+    function addPreset() {
+      const h = parseInt(document.getElementById("hours").value) || 0;
+      const m = parseInt(document.getElementById("minutes").value) || 0;
+      const s = parseInt(document.getElementById("seconds").value) || 0;
+      presets.push({h,m,s});
+      localStorage.setItem("timerPresets", JSON.stringify(presets));
+      renderPresets();
+      alert("Preset agregado!");
+    }
+
+    function saveIP() {
+      baseUrl = document.getElementById("ipInput").value;
+      localStorage.setItem("timerIP", baseUrl);
+      alert("IP guardada: " + baseUrl);
+    }
+
+    function send(cmd) {
+      fetch(baseUrl + cmd)
+        .then(() => console.log("Comando enviado:", cmd))
+        .catch(err => console.error("Error:", err));
+    }
+
+    function updateStatus() {
+      fetch(baseUrl + "/status")
+        .then(res => res.json())
+        .then(data => {
+          if(data.remaining) {
+            remainingSeconds = data.remaining;
+            totalSeconds = data.total;
+            document.getElementById("time-display").textContent = formatTime(remainingSeconds);
+            updateProgress();
+          }
+        })
+        .catch(() => console.log("No se pudo obtener estado"));
+    }
+
+    function formatTime(sec) {
+      const h = String(Math.floor(sec/3600)).padStart(2,"0");
+      const m = String(Math.floor((sec%3600)/60)).padStart(2,"0");
+      const s = String(sec%60).padStart(2,"0");
+      return `${h}:${m}:${s}`;
+    }
+
+    function updateProgress() {
+      if(totalSeconds > 0) {
+        const percent = (remainingSeconds / totalSeconds) * 100;
+        document.getElementById("progress").style.width = percent + "%";
+      } else {
+        document.getElementById("progress").style.width = "0%";
+      }
+    }
+
+    renderPresets();
+    setInterval(updateStatus, 1000);
+  </script>
+</body>
+</html>
